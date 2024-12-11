@@ -1,115 +1,158 @@
 "use client";
 
 import { useState } from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import * as z from "zod";
 import { Button } from "@/components/ui/button";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { useRouter } from "next/navigation";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { AlertCircle } from "lucide-react";
+
+const loginSchema = z.object({
+  email: z.string().email("Email inválido"),
+  password: z.string().min(8, "Mínimo 8 caracteres"),
+  code: z.string().optional()
+});
 
 export function LoginForm() {
-  const router = useRouter();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
-  const [status, setStatus] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
+  const [requires2FA, setRequires2FA] = useState(false);
+  const [tempToken, setTempToken] = useState<string>();
+  const [error, setError] = useState<string>();
 
-  const redirectToAdmin = () => {
-    try {
-      console.log("Intentando redirección a /admin...");
-      window.location.replace("/admin");
-    } catch (e) {
-      console.error("Error en redirección:", e);
-      // Fallback
-      window.location.href = "/admin";
-    }
-  };
+  const form = useForm<z.infer<typeof loginSchema>>({
+    resolver: zodResolver(loginSchema)
+  });
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError("");
-    setStatus("Iniciando login...");
-    setIsLoading(true);
-    
+  const onSubmit = async (data: z.infer<typeof loginSchema>) => {
     try {
-      const response = await fetch("/api/auth/login", {
+      if (requires2FA) {
+        const res = await fetch("/api/auth/verify-2fa", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            code: data.code,
+            tempToken
+          })
+        });
+        const result = await res.json();
+        
+        if (!result.success) {
+          setError(result.error);
+          return;
+        }
+        
+        window.location.href = "/dashboard";
+        return;
+      }
+
+      const res = await fetch("/api/auth/login", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ email, password }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: data.email,
+          password: data.password
+        })
       });
 
-      const data = await response.json();
-      setStatus(`Respuesta: ${JSON.stringify(data)}`);
-
-      if (response.ok) {
-        setStatus("Login exitoso, redirigiendo...");
-        // Esperar un momento antes de redirigir
-        setTimeout(() => {
-          setStatus("Ejecutando redirección...");
-          redirectToAdmin();
-        }, 1000);
-      } else {
-        setError(data.error || "Error al iniciar sesión");
-        setStatus("Error en login");
+      const result = await res.json();
+      
+      if (result.requiresTwoFactor) {
+        setRequires2FA(true);
+        setTempToken(result.tempToken);
+        return;
       }
+
+      if (!result.success) {
+        setError(result.error);
+        return;
+      }
+
+      window.location.href = "/dashboard";
     } catch (err) {
-      console.error("Error:", err);
-      setError("Error al conectar con el servidor");
-      setStatus(`Error: ${err instanceof Error ? err.message : 'Unknown error'}`);
-    } finally {
-      setIsLoading(false);
+      setError("Error al intentar iniciar sesión");
     }
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      {status && (
-        <div className="p-3 text-sm bg-blue-50 text-blue-600 rounded mb-4">
-          {status}
-        </div>
-      )}
-      
-      {error && (
-        <div className="p-3 text-sm text-red-500 bg-red-50 rounded mb-4">
-          {error}
-        </div>
-      )}
-      
-      <div className="space-y-4">
-        <Input
-          type="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          placeholder="Email"
-          disabled={isLoading}
-          required
-        />
-        <Input
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          placeholder="Contraseña"
-          disabled={isLoading}
-          required
-        />
-        <Button 
-          type="submit" 
-          className="w-full"
-          disabled={isLoading}
-        >
-          {isLoading ? "Iniciando sesión..." : "Iniciar sesión"}
-        </Button>
-        
-        <Button
-          type="button"
-          onClick={redirectToAdmin}
-          className="w-full"
-          variant="outline"
-        >
-          Ir a Admin (Debug)
-        </Button>
+    <div className="w-full max-w-md space-y-6">
+      <div className="text-center">
+        <h1 className="text-2xl font-bold">Iniciar Sesión</h1>
+        <p className="text-muted-foreground">
+          {requires2FA 
+            ? "Ingresa el código de verificación" 
+            : "Ingresa tus credenciales"}
+        </p>
       </div>
-    </form>
+
+      {error && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
+      <Form {...form}>
+        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+          {!requires2FA ? (
+            <>
+              <FormField
+                control={form.control}
+                name="email"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Email</FormLabel>
+                    <FormControl>
+                      <Input {...field} type="email" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="password"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Contraseña</FormLabel>
+                    <FormControl>
+                      <Input {...field} type="password" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </>
+          ) : (
+            <FormField
+              control={form.control}
+              name="code"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Código 2FA</FormLabel>
+                  <FormControl>
+                    <Input {...field} type="text" maxLength={6} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          )}
+
+          <Button type="submit" className="w-full">
+            {requires2FA ? "Verificar" : "Iniciar Sesión"}
+          </Button>
+        </form>
+      </Form>
+    </div>
   );
 }

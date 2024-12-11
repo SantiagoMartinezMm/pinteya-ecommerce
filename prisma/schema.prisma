@@ -22,7 +22,7 @@ model User {
   role           Role      @default(USER)
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
-  favorites      Product[]
+  favorites      Product[] @relation("UserFavorites")
 }
 
 model Product {
@@ -40,11 +40,11 @@ model Product {
   sku           String     @unique
   stock         Int
   features      String[]
-  status        String     @default("ACTIVE")
+  status        Status     @default(ACTIVE)
   views         Int        @default(0)
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
-
+  favoritedBy   User[]     @relation("UserFavorites")
   @@index([categoryId])
   @@index([brand])
   @@index([status])
